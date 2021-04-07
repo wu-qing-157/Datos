@@ -1,5 +1,5 @@
 # Project exclude paths
-/bin/
-/javadoc/
-/log
-/junit*.properties
+bin/
+javadoc/
+log
+junit*.properties
