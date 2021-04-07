@@ -1,0 +1,15 @@
+Describe any design decisions you made.
+
+I use HashMap to find an entry based on some 'name', and use the raw Java array rather than ArrayList for immutable lists.
+
+Dicuss and justify any changes you mode to the API.
+
+In TupleDesc, I add a constructer with parameters (TDItem[]). As the constructor is private, it is not exposed to other parts, and is only used for TupleDesc::merge.
+
+Describe any missing or imcomplete elements of your code.
+
+My code catches up with all the requirements in Lab-1.
+
+Describe how long you spent on the lab, and whether there was anything you found particularly difficult or confusing.
+
+I spent about 5 hours. I find Java is a somehow stupid language. Stream in Java 8 is a good tool for functional programming, but its API is also a little annoying.
