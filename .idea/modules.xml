@@ -2,7 +2,8 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/Datos.iml" filepath="$PROJECT_DIR$/Datos.iml" />
+      <module fileurl="file://$PROJECT_DIR$/acmdb-lab1/Datos.lab1.iml" filepath="$PROJECT_DIR$/acmdb-lab1/Datos.lab1.iml" />
+      <module fileurl="file://$PROJECT_DIR$/acmdb-lab2/Datos.lab2.iml" filepath="$PROJECT_DIR$/acmdb-lab2/Datos.lab2.iml" />
     </modules>
   </component>
 </project>

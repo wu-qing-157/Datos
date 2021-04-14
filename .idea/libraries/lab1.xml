@@ -1,0 +1,10 @@
+<component name="libraryTable">
+  <library name="lab1">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/acmdb-lab1/lib/ant-contrib-1.0b3.jar!/" />
+      <root url="jar://$PROJECT_DIR$/acmdb-lab1/lib/junit-4.5.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
