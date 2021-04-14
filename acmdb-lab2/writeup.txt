@@ -1,0 +1,22 @@
+Describe any design decisions you made, including your choice of page eviction policy. Describe
+briefly your insertion and deletion methods in B+ tree. Describe your idea in solving the bonus exercise
+(if it applies).
+
+I use the FIFO policy for page eviction.
+My implementation about insertion and deletion are quite normal, but very decent!
+For the merge and steal on internal pages, I make full use of reusable entries.
+
+Discuss and justify any changes you made to the API.
+
+I didn't make any changes to the API.
+
+Describe any missing or incomplete elements of your code.
+
+My code catches up with all the requirements in Lab-2.
+
+Describe how long you spent on the lab, and whether there was anything you found particularly difficult or confusing.
+
+I spent about 5 hours. I find again Java is a somehow stupid language.
+I also find it a bit hard to trust the given part of the code, or find out their usage.
+I think the given part of the code lacks consistency with common variable naming policy in Java,
+and with some builtin API with Java (for example, some classes implement the method iterator(), but does not implement java.lang.Iterable, making it impossible to use the iterator in for-each style).
