@@ -10,6 +10,9 @@ public class Delete extends Operator {
 
     private static final long serialVersionUID = 1L;
 
+    TransactionId t;
+    DbIterator child;
+
     /**
      * Constructor specifying the transaction that this delete belongs to as
      * well as the child to read from.
@@ -20,25 +23,29 @@ public class Delete extends Operator {
      *            The child operator from which to read tuples for deletion
      */
     public Delete(TransactionId t, DbIterator child) {
-        // some code goes here
+        this.t = t;
+        this.child = child;
     }
 
     public TupleDesc getTupleDesc() {
-        // some code goes here
-        return null;
+        Type[] typeArr = new Type[1];
+        typeArr[0] = Type.INT_TYPE;
+        String[] nameArr = new String[1];
+        return new TupleDesc(typeArr, nameArr);
     }
 
     public void open() throws DbException, TransactionAbortedException {
-        // some code goes here
+        super.open();
     }
 
     public void close() {
-        // some code goes here
+        super.close();
     }
 
     public void rewind() throws DbException, TransactionAbortedException {
-        // some code goes here
     }
+
+    private boolean called = false;
 
     /**
      * Deletes tuples as they are read from the child operator. Deletes are
@@ -50,19 +57,35 @@ public class Delete extends Operator {
      * @see BufferPool#deleteTuple
      */
     protected Tuple fetchNext() throws TransactionAbortedException, DbException {
-        // some code goes here
-        return null;
+        if (called) return null;
+        called = true;
+        int cnt = 0;
+        child.open();
+        while (child.hasNext()) {
+            Tuple cur = child.next();
+            try {
+                Database.getBufferPool().deleteTuple(t, cur);
+                cnt++;
+            } catch (IOException e) {
+                throw new DbException("insert fail");
+            }
+        }
+        child.close();
+        Tuple ret = new Tuple(getTupleDesc());
+        ret.setField(0, new IntField(cnt));
+        return ret;
     }
 
     @Override
     public DbIterator[] getChildren() {
-        // some code goes here
-        return null;
+        DbIterator[] ret = new DbIterator[1];
+        setChildren(ret);
+        return ret;
     }
 
     @Override
     public void setChildren(DbIterator[] children) {
-        // some code goes here
+        children[0] = child;
     }
 
 }

@@ -1,6 +1,7 @@
 package simpledb;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * The Join operator implements the relational join operation.
@@ -9,55 +10,69 @@ public class HashEquiJoin extends Operator {
 
     private static final long serialVersionUID = 1L;
 
+    private final JoinPredicate p;
+    private final DbIterator child1, child2;
+    private final Map<Integer, List<Tuple>> rightHash;
+
     /**
      * Constructor. Accepts to children to join and the predicate to join them
      * on
-     * 
-     * @param p
-     *            The predicate to use to join the children
-     * @param child1
-     *            Iterator for the left(outer) relation to join
-     * @param child2
-     *            Iterator for the right(inner) relation to join
+     *
+     * @param p      The predicate to use to join the children
+     * @param child1 Iterator for the left(outer) relation to join
+     * @param child2 Iterator for the right(inner) relation to join
      */
     public HashEquiJoin(JoinPredicate p, DbIterator child1, DbIterator child2) {
-        // some code goes here
+        this.p = p;
+        this.child1 = child1;
+        this.child2 = child2;
+        this.rightHash = new HashMap<>();
     }
 
     public JoinPredicate getJoinPredicate() {
-        // some code goes here
-        return null;
+        return p;
     }
 
     public TupleDesc getTupleDesc() {
-        // some code goes here
-        return null;
-    }
-    
-    public String getJoinField1Name()
-    {
-        // some code goes here
-	return null;
+        return TupleDesc.merge(child1.getTupleDesc(), child2.getTupleDesc());
     }
 
-    public String getJoinField2Name()
-    {
-        // some code goes here
-        return null;
+    public String getJoinField1Name() {
+        return child1.getTupleDesc().getFieldName(p.getField1());
     }
-    
+
+    public String getJoinField2Name() {
+        return child2.getTupleDesc().getFieldName(p.getField2());
+    }
+
+    private void initializeRightHash() throws TransactionAbortedException, DbException {
+        while (child2.hasNext()) {
+            Tuple cur = child2.next();
+            rightHash.computeIfAbsent(cur.getField(p.getField2()).hashCode(), (k) -> new ArrayList<>()).add(cur);
+        }
+    }
+
     public void open() throws DbException, NoSuchElementException,
             TransactionAbortedException {
-        // some code goes here
+        super.open();
+        child1.open();
+        child2.open();
+        initializeRightHash();
+        child2.close();
     }
 
     public void close() {
-        // some code goes here
+        super.close();
+        child1.close();
     }
 
     public void rewind() throws DbException, TransactionAbortedException {
-        // some code goes here
+        child1.rewind();
+        t1 = null;
+        listIt = null;
     }
+
+    private Tuple t1 = null;
 
     transient Iterator<Tuple> listIt = null;
 
@@ -75,24 +90,40 @@ public class HashEquiJoin extends Operator {
      * <p>
      * For example, if one tuple is {1,2,3} and the other tuple is {1,5,6},
      * joined on equality of the first column, then this returns {1,2,3,1,5,6}.
-     * 
+     *
      * @return The next matching tuple.
      * @see JoinPredicate#filter
      */
     protected Tuple fetchNext() throws TransactionAbortedException, DbException {
-        // some code goes here
-        return null;
+        while (true) {
+            if (listIt != null && listIt.hasNext()) {
+                Tuple t2 = listIt.next();
+                Tuple ret = new Tuple(getTupleDesc());
+                for (int i = 0; i < t1.getTupleDesc().numFields(); i++)
+                    ret.setField(i, t1.getField(i));
+                for (int i = t1.getTupleDesc().numFields(), j = 0; j < t2.getTupleDesc().numFields(); i++, j++)
+                    ret.setField(i, t2.getField(j));
+                return ret;
+            }
+            if (!child1.hasNext()) return null;
+            t1 = child1.next();
+            List<Tuple> list = rightHash.get(t1.getField(p.getField1()).hashCode());
+            if (list == null) listIt = null;
+            else listIt = list.iterator();
+        }
     }
 
     @Override
     public DbIterator[] getChildren() {
-        // some code goes here
-        return null;
+        DbIterator[] ret = new DbIterator[2];
+        setChildren(ret);
+        return ret;
     }
 
     @Override
     public void setChildren(DbIterator[] children) {
-        // some code goes here
+        children[0] = child1;
+        children[1] = child2;
     }
-    
+
 }

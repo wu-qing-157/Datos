@@ -647,7 +647,7 @@ public class Parser {
                 System.out.printf("----------------\n%.2f seconds\n\n",
                         ((double) time / 1000.0));
                 System.out.println("Press Enter to exit");
-                System.in.read();
+//                System.in.read();
                 this.shutdown();
             } catch (FileNotFoundException e) {
                 System.out.println("Unable to find query file" + queryFile);

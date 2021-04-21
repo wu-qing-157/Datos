@@ -69,7 +69,7 @@ public class HeapFile implements DbFile {
     // see DbFile.java for javadocs
     public Page readPage(PageId pid) {
         byte[] page = new byte[BufferPool.getPageSize()];
-        try (RandomAccessFile f = new RandomAccessFile(this.f, "rw")) {
+        try (RandomAccessFile f = new RandomAccessFile(this.f, "r")) {
             f.seek((long) pid.pageNumber() * BufferPool.getPageSize());
             f.read(page);
             return new HeapPage(new HeapPageId(pid.getTableId(), pid.pageNumber()), page);
@@ -80,8 +80,10 @@ public class HeapFile implements DbFile {
 
     // see DbFile.java for javadocs
     public void writePage(Page page) throws IOException {
-        // some code goes here
-        // not necessary for lab1
+        RandomAccessFile file = new RandomAccessFile(this.f, "rw");
+        file.seek((long) page.getId().pageNumber() * BufferPool.getPageSize());
+        file.write(page.getPageData());
+        file.close();
     }
 
     /**
@@ -94,17 +96,31 @@ public class HeapFile implements DbFile {
     // see DbFile.java for javadocs
     public ArrayList<Page> insertTuple(TransactionId tid, Tuple t)
             throws DbException, IOException, TransactionAbortedException {
-        // some code goes here
-        return null;
-        // not necessary for lab1
+        for (int i = 0; i < numPages(); i++) {
+            HeapPage page = (HeapPage) Database.getBufferPool().getPage(tid, new HeapPageId(getId(), i), Permissions.READ_WRITE);
+            if (page.getNumEmptySlots() > 0) {
+                page.insertTuple(t);
+                ArrayList<Page> ret = new ArrayList<>();
+                ret.add(page);
+                return ret;
+            }
+        }
+        HeapPage newPage = new HeapPage(new HeapPageId(getId(), numPages()), HeapPage.createEmptyPageData());
+        newPage.insertTuple(t);
+        writePage(newPage);
+        ArrayList<Page> ret = new ArrayList<>();
+        ret.add(newPage);
+        return ret;
     }
 
     // see DbFile.java for javadocs
     public ArrayList<Page> deleteTuple(TransactionId tid, Tuple t) throws DbException,
             TransactionAbortedException {
-        // some code goes here
-        return null;
-        // not necessary for lab1
+        HeapPage page = (HeapPage) Database.getBufferPool().getPage(tid, t.getRecordId().getPageId(), Permissions.READ_WRITE);
+        page.deleteTuple(t);
+        ArrayList<Page> ret = new ArrayList<>();
+        ret.add(page);
+        return ret;
     }
 
     // see DbFile.java for javadocs
@@ -116,18 +132,18 @@ public class HeapFile implements DbFile {
             @Override
             public void open() throws DbException, TransactionAbortedException {
                 page = IntStream.range(0, numPages()).iterator();
-                if (page.hasNext())
-                    tuple = ((HeapPage) Database.getBufferPool().getPage(tid, new HeapPageId(getId(), page.next()), Permissions.READ_ONLY)).iterator();
             }
 
             @Override
             public boolean hasNext() throws DbException, TransactionAbortedException {
-                return tuple.hasNext() || page.hasNext();
+                while (!tuple.hasNext() && page.hasNext())
+                    tuple = ((HeapPage) Database.getBufferPool().getPage(tid, new HeapPageId(getId(), page.next()), Permissions.READ_ONLY)).iterator();
+                return tuple.hasNext();
             }
 
             @Override
             public Tuple next() throws DbException, TransactionAbortedException, NoSuchElementException {
-                if (!tuple.hasNext())
+                while (!tuple.hasNext() && page.hasNext())
                     tuple = ((HeapPage) Database.getBufferPool().getPage(tid, new HeapPageId(getId(), page.next()), Permissions.READ_ONLY)).iterator();
                 return tuple.next();
             }
@@ -135,6 +151,7 @@ public class HeapFile implements DbFile {
             @Override
             public void rewind() throws DbException, TransactionAbortedException {
                 open();
+                tuple = Collections.emptyIterator();
             }
 
             @Override

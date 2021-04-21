@@ -238,8 +238,10 @@ public class HeapPage implements Page {
      * @param t The tuple to delete
      */
     public void deleteTuple(Tuple t) throws DbException {
-        // some code goes here
-        // not necessary for lab1
+        if (!t.getRecordId().getPageId().equals(pid)) throw new DbException("tuple not on this page");
+        int tupleNo = t.getRecordId().tupleno();
+        if (!isSlotUsed(tupleNo)) throw new DbException("tuple slot already empty");
+        markSlotUsed(tupleNo, false);
     }
 
     /**
@@ -250,26 +252,31 @@ public class HeapPage implements Page {
      * @param t The tuple to add.
      */
     public void insertTuple(Tuple t) throws DbException {
-        // some code goes here
-        // not necessary for lab1
+        if (getNumEmptySlots() == 0) throw new DbException("page full");
+        if (!t.getTupleDesc().equals(td)) throw new DbException("tupledesc mismatch");
+        for (int i = 0; i < numSlots; i++) if (!isSlotUsed(i)) {
+            tuples[i] = t;
+            markSlotUsed(i, true);
+            t.setRecordId(new RecordId(pid, i));
+            break;
+        }
     }
+
+    private TransactionId dirty;
 
     /**
      * Marks this page as dirty/not dirty and record that transaction
      * that did the dirtying
      */
     public void markDirty(boolean dirty, TransactionId tid) {
-        // some code goes here
-	// not necessary for lab1
+        this.dirty = dirty ? tid : null;
     }
 
     /**
      * Returns the tid of the transaction that last dirtied this page, or null if the page is not dirty
      */
     public TransactionId isDirty() {
-        // some code goes here
-	// Not necessary for lab1
-        return null;      
+        return dirty;
     }
 
     /**
@@ -292,8 +299,8 @@ public class HeapPage implements Page {
      * Abstraction to fill or clear a slot on this page.
      */
     private void markSlotUsed(int i, boolean value) {
-        // some code goes here
-        // not necessary for lab1
+        if (value) header[i / 8] |= 1 << (i % 8);
+        else header[i / 8] &= ~(1 << (i % 8));
     }
 
     /**

@@ -1,10 +1,7 @@
 package simpledb;
 
 import java.io.IOException;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.*;
 
 /**
  * BufferPool manages the reading and writing of pages into memory from
@@ -41,7 +38,7 @@ public class BufferPool {
      * @param numPages maximum number of pages in this buffer pool.
      */
     public BufferPool(int numPages) {
-        pool = new ConcurrentHashMap<>();
+        pool = new LinkedHashMap<>(numPages, 0.75f, true);
         this.numPages = numPages;
     }
 
@@ -76,7 +73,7 @@ public class BufferPool {
      */
     public Page getPage(TransactionId tid, PageId pid, Permissions perm)
             throws TransactionAbortedException, DbException {
-        Page ret = pool.getOrDefault(pid, null);
+        Page ret = pool.get(pid);
         if (ret == null) {
             if (pool.size() == numPages) evictPage();
             ret = Database.getCatalog().getDatabaseFile(pid.getTableId()).readPage(pid);
@@ -131,6 +128,11 @@ public class BufferPool {
         // not necessary for lab1|lab2
     }
 
+    private void ensureModifiedPages(Page page) throws DbException {
+        if (!pool.containsKey(page.getId()) && pool.size() == numPages) evictPage();
+        pool.put(page.getId(), page);
+    }
+
     /**
      * Add a tuple to the specified table on behalf of transaction tid.  Will
      * acquire a write lock on the page the tuple is added to and any other
@@ -149,7 +151,10 @@ public class BufferPool {
     public void insertTuple(TransactionId tid, int tableId, Tuple t)
             throws DbException, IOException, TransactionAbortedException {
         DbFile file = Database.getCatalog().getDatabaseFile(tableId);
-        for (Page p : file.insertTuple(tid, t)) p.markDirty(true, tid);
+        for (Page p : file.insertTuple(tid, t)) {
+            ensureModifiedPages(p);
+            p.markDirty(true, tid);
+        }
     }
 
     /**
@@ -168,7 +173,10 @@ public class BufferPool {
     public void deleteTuple(TransactionId tid, Tuple t)
             throws DbException, IOException, TransactionAbortedException {
         DbFile file = Database.getCatalog().getDatabaseFile(t.getRecordId().getPageId().getTableId());
-        for (Page p : file.deleteTuple(tid, t)) p.markDirty(true, tid);
+        for (Page p : file.deleteTuple(tid, t)) {
+            ensureModifiedPages(p);
+            p.markDirty(true, tid);
+        }
     }
 
     /**
@@ -177,7 +185,9 @@ public class BufferPool {
      * break simpledb if running in NO STEAL mode.
      */
     public synchronized void flushAllPages() throws IOException {
-        for (PageId pageId : pool.keySet()) flushPage(pageId);
+        for (PageId pageId : new ArrayList<>(pool.keySet())) {
+            flushPage(pageId);
+        }
     }
 
     /**
@@ -218,14 +228,13 @@ public class BufferPool {
      * Flushes the page to disk to ensure dirty pages are updated on disk.
      */
     private synchronized void evictPage() throws DbException {
-        Iterator<PageId> iterator = pool.keySet().iterator();
-        PageId id = iterator.next();
+        PageId entry = pool.keySet().iterator().next();
         try {
-            flushPage(id);
+            flushPage(entry);
+            pool.remove(entry);
         } catch (IOException e) {
             e.printStackTrace();
         }
-        iterator.remove();
     }
 
 }
