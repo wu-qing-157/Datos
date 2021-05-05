@@ -1,0 +1,30 @@
+*  Describe any design decisions you made, including your choice of page
+   eviction policy. If you used something other than a nested-loops join,
+   describe the tradeoffs of the algorithm you chose.
+
+   The page eviction policy is FIFO. I use the nested-loops join.
+   I once considered using a TreeMap for one operand of join,
+   but I think storing the whole content of one operand in memory is somehow cheating.
+   Actually I also think the HashEquiJoin, where similar behavior is conducted, itself is also cheating.
+
+*  Discuss and justify any changes you made to the API.
+
+   I do not make any changes to API in this part.
+
+*  Describe any missing or incomplete elements of your code.
+
+   My code is excellent, missing nothing.
+
+*  Describe how long you spent on the lab, and whether there was anything
+   you found particularly difficult or confusing.
+
+   I spend about five hours.
+   I again want to complain that the API given in this project lies far away from what it should like in Java.
+   It doesn't make full use of Java's interfaces, violates Java's normal naming policy.
+   For example, Java always use hasNext() and next() for iteration, but operators uses fetchNext().
+   In Operator, next() actually wraps fetchNext().
+   But in Java, this should be done by let subclasses override next() and annotate it with @CallSuper.
+   Also, some methods in Operator required subclasses override to call super,
+   but are not annotated with @CallSuper.
+
+*  (Optional) Describe the total running time of the sql contest.
