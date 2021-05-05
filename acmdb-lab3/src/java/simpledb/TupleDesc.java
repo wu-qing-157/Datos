@@ -133,6 +133,7 @@ public class TupleDesc implements Serializable {
      * @throws NoSuchElementException if no field with a matching name is found.
      */
     public int fieldNameToIndex(String name) throws NoSuchElementException {
+        if (name == null) throw new NoSuchElementException();
         Integer idx = nameToIdx.get(name.substring(name.lastIndexOf('.') + 1));
         if (idx == null)
             throw new NoSuchElementException();

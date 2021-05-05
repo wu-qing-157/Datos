@@ -145,7 +145,6 @@ public class Aggregate extends Operator {
             tdType[1] = Type.INT_TYPE;
             String[] tdName = new String[2];
             tdName[0] = child.getTupleDesc().getFieldName(gfield);
-            tdName[1] = "aggregateVal";
             return new TupleDesc(tdType, tdName);
         }
     }
