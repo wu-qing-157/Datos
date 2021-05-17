@@ -1,5 +1,6 @@
 package simpledb;
 
+import java.io.IOException;
 import java.util.*;
 
 import javax.swing.*;
@@ -111,7 +112,7 @@ public class JoinOptimizer {
             // HINT: You may need to use the variable "j" if you implemented
             // a join algorithm that's more complicated than a basic
             // nested-loops join.
-            return -1.0;
+            return cost1 + card1 * cost2 + card1 * card2;
         }
     }
 
@@ -156,7 +157,31 @@ public class JoinOptimizer {
             boolean t2pkey, Map<String, TableStats> stats,
             Map<String, Integer> tableAliasToId) {
         int card = 1;
-        // some code goes here
+        switch (joinOp) {
+            case GREATER_THAN:
+            case LESS_THAN:
+            case LESS_THAN_OR_EQ:
+            case GREATER_THAN_OR_EQ:
+                int field1 = stats.get(table1Alias).getId(field1PureName);
+                int field2 = stats.get(table2Alias).getId(field2PureName);
+                if (field1 == -1 || field2 == -1) card = card1 * card2 / 2;
+                else {
+                    double pMin = stats.get(table1Alias).estimateSelectivity(field1, joinOp, new IntField(stats.get(table2Alias).getMin(field2)));
+                    double pMax = stats.get(table2Alias).estimateSelectivity(field1, joinOp, new IntField(stats.get(table2Alias).getMax(field2)));
+                    card = (stats.get(table1Alias).estimateTableCardinality(pMin) + stats.get(table2Alias).estimateTableCardinality(pMax)) * card2 / 2;
+                }
+                break;
+            case EQUALS:
+            case LIKE:
+            case NOT_EQUALS:
+                if (t1pkey && t2pkey) card = Math.max(card1, card2);
+                else if (t1pkey) card = card2;
+                else if (t2pkey) card = card1;
+                else card = Math.max(card1, card2); // Can be like non-equality estimation, but more complex to implement
+                if (joinOp == Predicate.Op.LIKE) card *= 3;
+                if (joinOp == Predicate.Op.NOT_EQUALS) card = card1 * card2 - card;
+                break;
+        }
         return card <= 0 ? 1 : card;
     }
 
@@ -217,11 +242,24 @@ public class JoinOptimizer {
             HashMap<String, TableStats> stats,
             HashMap<String, Double> filterSelectivities, boolean explain)
             throws ParsingException {
-        //Not necessary for labs 1--3
-
-        // some code goes here
-        //Replace the following
-        return joins;
+        PlanCache cache = new PlanCache();
+        for (int i = 1; i <= joins.size(); i++) {
+            for (Set<LogicalJoinNode> subset : enumerateSubsets(joins, i)) {
+                double cost = Double.MAX_VALUE;
+                CostCard best = new CostCard();
+                best.cost = Double.MAX_VALUE;
+                for (LogicalJoinNode node : subset) {
+                    CostCard card = computeCostAndCardOfSubplan(stats, filterSelectivities, node, subset, Double.MAX_VALUE, cache);
+                    if (card != null && card.cost < cost) {
+                        cost = card.cost;
+                        best = card;
+                    }
+                }
+                cache.addPlan(subset, cost, best.card, best.plan);
+            }
+        }
+        if (explain) printJoins(cache.getOrder(new HashSet<>(joins)), cache, stats, filterSelectivities);
+        return cache.getOrder(new HashSet<>(joins));
     }
 
     // ===================== Private Methods =================================
