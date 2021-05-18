@@ -1,0 +1,22 @@
++ Describe any design decisions you made, including methods for selectivity estimation, join ordering.
+
+For the IntHistogram, I make full use of the property of integers rather than real numbers.
+In each bucket, instead of commonly used half-open intervals, I take the possible integer values into account.
+For calculating the prefix and suffix sum, I use a binary-indexed tree (BIT).
+For the cardinality of joined table using non-equality operators,
+I use the min-value and max-value of one table to estimate the matched selectivity estimation in another table,
+and take the average for the cardinality.
+
++ Discuss and justify any changes you made to the API.
+
+I add a getMin method and a getMax method in TableStats for my join cardinality estimation,
+it does not conflict with the existing APIs.
+
++ Describe any missing or incomplete elements of your code.
+
+My code is perfect.
+
++ Describe how long you spent on the lab, and whether there was anything you found particularly difficult or confusing.
+
+I spent about four hours, half of which I spent on finding a ridiculous mistake of calculating cost of a single join,
+which consists of only one line of code.
