@@ -1,0 +1,23 @@
+*   Describe any design decisions you made, including your deadlock detection policy, locking granularity, etc.
+
+I use a dependency graph consisting both semaphores and transactions.
+In detail, if some transaction is waiting for a semaphore, we add an edge from the transaction to the semaphore.
+After the semaphore is granted, we revert that edge.
+If a cycle appears in the graph with no:
+    transaction --read-- semaphore --read-- transaction
+    T1 ---- S1 ----T1
+we claim there is a deadlock.
+Unfortunately, deadlock check can only be run synchronized.
+Only if a requirement passes the deadlock test, the ReadWriteSemaphore can be waited.
+
+*   Discuss and justify any changes you made to the API.
+
+I didn't change any API.
+
+*   Describe any missing or incomplete elements of your code.
+
+My code perfect.
+
+*   Describe how long you spent on the lab, and whether there was anything you found particularly difficult or confusing.
+
+About six hours. Debugging multi-thread is somehow annoying.

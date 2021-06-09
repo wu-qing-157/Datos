@@ -2,6 +2,8 @@ package simpledb;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
 
 /**
  * BufferPool manages the reading and writing of pages into memory from
@@ -31,6 +33,217 @@ public class BufferPool {
 
     private final Map<PageId, Page> pool;
     private final int numPages;
+    private final Map<PageId, ReadWriteSemaphore> lockMap;
+    private final Map<TransactionPagePair, LockInfo> locks;
+
+    private final DependencyGraph graph = new DependencyGraph();
+
+    private static class DependencyGraph {
+        private static class SemaWrite {
+            public ReadWriteSemaphore semaphore;
+            public boolean write;
+
+            public SemaWrite(ReadWriteSemaphore semaphore, boolean write) {
+                this.semaphore = semaphore;
+                this.write = write;
+            }
+        }
+
+        private static class TransactionWrite {
+            public TransactionId tid;
+            public boolean write;
+
+            public TransactionWrite(TransactionId tid, boolean write) {
+                this.tid = tid;
+                this.write = write;
+            }
+
+            @Override
+            public boolean equals(Object o) {
+                if (this == o) return true;
+                if (o == null || getClass() != o.getClass()) return false;
+
+                TransactionWrite that = (TransactionWrite) o;
+
+                if (write != that.write) return false;
+                return tid.equals(that.tid);
+            }
+
+            @Override
+            public int hashCode() {
+                int result = tid.hashCode();
+                result = 31 * result + (write ? 1 : 0);
+                return result;
+            }
+        }
+
+        private final Map<TransactionId, SemaWrite> tid2sema = new ConcurrentHashMap<>();
+        private final Map<ReadWriteSemaphore, Set<TransactionWrite>> sema2tid = new ConcurrentHashMap<>();
+
+        private boolean check(TransactionId start, TransactionId cur) {
+            SemaWrite s = tid2sema.get(cur);
+            if (s == null) return false;
+            for (TransactionWrite t : sema2tid.getOrDefault(s.semaphore, new HashSet<>())) {
+                if (!s.write && !t.write) continue;
+                if (t.tid == cur) continue;
+                if (t.tid == start || check(start, t.tid)) return true;
+            }
+            return false;
+        }
+
+        public synchronized boolean wait(TransactionId tid, ReadWriteSemaphore sema, boolean write) {
+            tid2sema.put(tid, new SemaWrite(sema, write));
+            if (check(tid, tid)) {
+                tid2sema.remove(tid);
+                return true;
+            } else return false;
+        }
+
+        public synchronized void acquire(TransactionId tid, ReadWriteSemaphore sema, boolean write) {
+            tid2sema.remove(tid);
+            sema2tid.computeIfAbsent(sema, s -> new HashSet<>()).add(new TransactionWrite(tid, write));
+        }
+
+        public synchronized void release(TransactionId tid, ReadWriteSemaphore sema, boolean write) {
+            Set<TransactionWrite> set = sema2tid.get(sema);
+            set.remove(new TransactionWrite(tid, write));
+            if (set.isEmpty()) sema2tid.remove(sema);
+        }
+    }
+
+    private class ReadWriteSemaphore {
+        private final Semaphore read = new Semaphore(1);
+        private final Semaphore write = new Semaphore(1);
+        private int readCount = 0;
+
+        public void lockRead(TransactionId tid) throws TransactionAbortedException {
+            if (graph.wait(tid, this, false)) throw new TransactionAbortedException();
+            try {
+                read.acquire();
+                readCount++;
+                if (readCount == 1) write.acquire();
+                read.release();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            graph.acquire(tid, this, false);
+        }
+
+        public void unlockRead(TransactionId tid) {
+            try {
+                read.acquire();
+                readCount--;
+                if (readCount == 0) write.release();
+                read.release();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            graph.release(tid, this, false);
+        }
+
+        public void upgrade(TransactionId tid) throws TransactionAbortedException {
+            if (graph.wait(tid, this, true)) throw new TransactionAbortedException();
+            try {
+                read.acquire();
+                readCount--;
+                if (readCount == 0) write.release();
+                read.release();
+                write.acquire();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            graph.release(tid, this, false);
+            graph.acquire(tid, this, true);
+        }
+
+        public void lockWrite(TransactionId tid) throws TransactionAbortedException {
+            if (graph.wait(tid, this, true)) throw new TransactionAbortedException();
+            try {
+                write.acquire();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            graph.acquire(tid, this, true);
+        }
+
+        public void unlockWrite(TransactionId tid) {
+            write.release();
+            graph.release(tid, this, true);
+        }
+    }
+
+    private static class LockInfo {
+        private final TransactionId tid;
+        private final ReadWriteSemaphore lock;
+        private Boolean write;
+
+        public LockInfo(TransactionId tid, ReadWriteSemaphore lock) {
+            this.tid = tid;
+            this.lock = lock;
+            this.write = null;
+        }
+
+        public void update(boolean write) throws TransactionAbortedException {
+            if (this.write == null && !write) {
+                lock.lockRead(tid);
+                this.write = false;
+            } else if (this.write == null && write) {
+                lock.lockWrite(tid);
+                this.write = true;
+            } else if (!this.write && write) {
+                lock.upgrade(tid);
+                this.write = true;
+            }
+        }
+
+        public boolean isWrite() {
+            return write != null && write;
+        }
+
+        public void unlock() {
+            if (write != null) {
+                if (write) lock.unlockWrite(tid);
+                else lock.unlockRead(tid);
+                write = null;
+            }
+        }
+    }
+
+    private static class TransactionPagePair {
+        private final TransactionId tid;
+        private final PageId pid;
+
+        public TransactionId getTid() {
+            return tid;
+        }
+
+        public PageId getPid() {
+            return pid;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+
+            TransactionPagePair that = (TransactionPagePair) o;
+
+            if (!tid.equals(that.tid)) return false;
+            return pid.equals(that.pid);
+        }
+
+        @Override
+        public int hashCode() {
+            int result = tid.hashCode();
+            result = 31 * result + pid.hashCode();
+            return result;
+        }
+
+        public TransactionPagePair(TransactionId tid, PageId pid) {
+            this.tid = tid;
+            this.pid = pid;
+        }
+    }
 
     /**
      * Creates a BufferPool that caches up to numPages pages.
@@ -38,7 +251,9 @@ public class BufferPool {
      * @param numPages maximum number of pages in this buffer pool.
      */
     public BufferPool(int numPages) {
-        pool = new LinkedHashMap<>(numPages, 0.75f, true);
+        pool = new ConcurrentHashMap<>();
+        lockMap = new ConcurrentHashMap<>();
+        locks = new ConcurrentHashMap<>();
         this.numPages = numPages;
     }
 
@@ -79,6 +294,9 @@ public class BufferPool {
             ret = Database.getCatalog().getDatabaseFile(pid.getTableId()).readPage(pid);
             pool.put(pid, ret);
         }
+        ReadWriteSemaphore lock = lockMap.computeIfAbsent(pid, p -> new ReadWriteSemaphore());
+        LockInfo info = locks.computeIfAbsent(new TransactionPagePair(tid, pid), p -> new LockInfo(tid, lock));
+        info.update(perm == Permissions.READ_WRITE);
         return ret;
     }
 
@@ -92,8 +310,11 @@ public class BufferPool {
      * @param pid the ID of the page to unlock
      */
     public void releasePage(TransactionId tid, PageId pid) {
-        // some code goes here
-        // not necessary for lab1|lab2
+        LockInfo info = locks.get(new TransactionPagePair(tid, pid));
+        if (info != null) {
+            info.unlock();
+            locks.remove(new TransactionPagePair(tid, pid));
+        }
     }
 
     /**
@@ -102,17 +323,14 @@ public class BufferPool {
      * @param tid the ID of the transaction requesting the unlock
      */
     public void transactionComplete(TransactionId tid) throws IOException {
-        // some code goes here
-        // not necessary for lab1|lab2
+        transactionComplete(tid, true);
     }
 
     /**
      * Return true if the specified transaction has a lock on the specified page
      */
     public boolean holdsLock(TransactionId tid, PageId p) {
-        // some code goes here
-        // not necessary for lab1|lab2
-        return false;
+        return locks.containsKey(new TransactionPagePair(tid, p));
     }
 
     /**
@@ -124,8 +342,15 @@ public class BufferPool {
      */
     public void transactionComplete(TransactionId tid, boolean commit)
             throws IOException {
-        // some code goes here
-        // not necessary for lab1|lab2
+        if (commit) flushPages(tid);
+        else {
+            for (Map.Entry<TransactionPagePair, LockInfo> entry : locks.entrySet())
+                if (entry.getKey().getTid().equals(tid) && entry.getValue().isWrite())
+                    discardPage(entry.getKey().getPid());
+        }
+        for (Map.Entry<TransactionPagePair, LockInfo> entry : locks.entrySet())
+            if (entry.getKey().getTid().equals(tid))
+                entry.getValue().unlock();
     }
 
     private void ensureModifiedPages(Page page) throws DbException {
@@ -184,7 +409,7 @@ public class BufferPool {
      * NB: Be careful using this routine -- it writes dirty data to disk so will
      * break simpledb if running in NO STEAL mode.
      */
-    public synchronized void flushAllPages() throws IOException {
+    public void flushAllPages() throws IOException {
         for (PageId pageId : new ArrayList<>(pool.keySet())) {
             flushPage(pageId);
         }
@@ -199,7 +424,7 @@ public class BufferPool {
      * Also used by B+ tree files to ensure that deleted pages
      * are removed from the cache so they can be reused safely
      */
-    public synchronized void discardPage(PageId pid) {
+    public void discardPage(PageId pid) {
         pool.remove(pid);
     }
 
@@ -208,8 +433,8 @@ public class BufferPool {
      *
      * @param pid an ID indicating the page to flush
      */
-    private synchronized void flushPage(PageId pid) throws IOException {
-        if (pool.get(pid).isDirty() != null) {
+    private void flushPage(PageId pid) throws IOException {
+        if (pool.containsKey(pid) && pool.get(pid).isDirty() != null) {
             Database.getCatalog().getDatabaseFile(pid.getTableId()).writePage(pool.get(pid));
             pool.get(pid).markDirty(false, null);
         }
@@ -218,9 +443,10 @@ public class BufferPool {
     /**
      * Write all pages of the specified transaction to disk.
      */
-    public synchronized void flushPages(TransactionId tid) throws IOException {
-        // some code goes here
-        // not necessary for lab1|lab2
+    public void flushPages(TransactionId tid) throws IOException {
+        for (Map.Entry<TransactionPagePair, LockInfo> entry : locks.entrySet())
+            if (entry.getKey().getTid().equals(tid) && entry.getValue().isWrite())
+                flushPage(entry.getKey().getPid());
     }
 
     /**
@@ -228,13 +454,19 @@ public class BufferPool {
      * Flushes the page to disk to ensure dirty pages are updated on disk.
      */
     private synchronized void evictPage() throws DbException {
-        PageId entry = pool.keySet().iterator().next();
-        try {
-            flushPage(entry);
-            pool.remove(entry);
-        } catch (IOException e) {
-            e.printStackTrace();
+        Iterator<Map.Entry<PageId, Page>> iterator = pool.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<PageId, Page> entry = iterator.next();
+            if (entry.getValue().isDirty() != null) continue;
+            try {
+                flushPage(entry.getKey());
+                iterator.remove();
+                return;
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
+        throw new DbException("All pages are dirty");
     }
 
 }

@@ -262,7 +262,7 @@ public class HeapPage implements Page {
         }
     }
 
-    private TransactionId dirty;
+    private TransactionId dirty = null;
 
     /**
      * Marks this page as dirty/not dirty and record that transaction
