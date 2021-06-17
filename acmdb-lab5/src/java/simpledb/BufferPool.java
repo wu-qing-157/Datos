@@ -14,7 +14,7 @@ import java.util.concurrent.Semaphore;
  * a page, BufferPool checks that the transaction has the appropriate
  * locks to read/write the page.
  *
- * @Threadsafe, all fields are final
+ * @Threadsafe all fields are final
  */
 public class BufferPool {
     /**
@@ -114,55 +114,43 @@ public class BufferPool {
     private class ReadWriteSemaphore {
         private final Semaphore read = new Semaphore(1);
         private final Semaphore write = new Semaphore(1);
+        private final Semaphore upgrade = new Semaphore(1);
         private int readCount = 0;
 
         public void lockRead(TransactionId tid) throws TransactionAbortedException {
             if (graph.wait(tid, this, false)) throw new TransactionAbortedException();
-            try {
-                read.acquire();
-                readCount++;
-                if (readCount == 1) write.acquire();
-                read.release();
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
+            read.acquireUninterruptibly();
+            readCount++;
+            if (readCount == 1) write.acquireUninterruptibly();
+            read.release();
             graph.acquire(tid, this, false);
         }
 
         public void unlockRead(TransactionId tid) {
-            try {
-                read.acquire();
-                readCount--;
-                if (readCount == 0) write.release();
-                read.release();
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
+            read.acquireUninterruptibly();
+            readCount--;
+            if (readCount == 0) write.release();
+            read.release();
             graph.release(tid, this, false);
         }
 
         public void upgrade(TransactionId tid) throws TransactionAbortedException {
             if (graph.wait(tid, this, true)) throw new TransactionAbortedException();
-            try {
-                read.acquire();
-                readCount--;
-                if (readCount == 0) write.release();
-                read.release();
-                write.acquire();
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
+            read.acquireUninterruptibly();
+            readCount--;
+            // multiple upgrade results in deadlock in graph, so no deadlock may happen here
+            upgrade.acquireUninterruptibly();
+            if (readCount == 0) write.release();
+            read.release();
+            write.acquireUninterruptibly();
+            upgrade.release();
             graph.release(tid, this, false);
             graph.acquire(tid, this, true);
         }
 
         public void lockWrite(TransactionId tid) throws TransactionAbortedException {
             if (graph.wait(tid, this, true)) throw new TransactionAbortedException();
-            try {
-                write.acquire();
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
+            write.acquireUninterruptibly();
             graph.acquire(tid, this, true);
         }
 
