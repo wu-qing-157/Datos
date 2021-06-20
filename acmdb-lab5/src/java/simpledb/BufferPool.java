@@ -276,15 +276,15 @@ public class BufferPool {
      */
     public Page getPage(TransactionId tid, PageId pid, Permissions perm)
             throws TransactionAbortedException, DbException {
+        ReadWriteSemaphore lock = lockMap.computeIfAbsent(pid, p -> new ReadWriteSemaphore());
+        LockInfo info = locks.computeIfAbsent(new TransactionPagePair(tid, pid), p -> new LockInfo(tid, lock));
+        info.update(perm == Permissions.READ_WRITE);
         Page ret = pool.get(pid);
         if (ret == null) {
             if (pool.size() == numPages) evictPage();
             ret = Database.getCatalog().getDatabaseFile(pid.getTableId()).readPage(pid);
             pool.put(pid, ret);
         }
-        ReadWriteSemaphore lock = lockMap.computeIfAbsent(pid, p -> new ReadWriteSemaphore());
-        LockInfo info = locks.computeIfAbsent(new TransactionPagePair(tid, pid), p -> new LockInfo(tid, lock));
-        info.update(perm == Permissions.READ_WRITE);
         return ret;
     }
 
